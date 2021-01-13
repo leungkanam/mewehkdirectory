@@ -96,6 +96,12 @@
 ## 九龍區
 |<p style='font-size:20px'>九龍區</p>||
 |:---|---|
+
+|慈雲山|http://mewe.com/join/tszwanshan|
+|鑽石山之友|http://mewe.com/join/diamondhill|
+|新蒲崗|http://mewe.com/join/sanpokong|
+|黃大仙| https://mewe.com/join/wongtaisin|
+|彩虹|https://mewe.com/join/choihungdistrict|
 |🎗九龍城是我家🇭🇰|https://mewe.com/join/kowlooncity|
 |九龍灣同路人|https://mewe.com/join/yellowkowloonbay|
 |大角咀|https://mewe.com/join/taikoktsui|
