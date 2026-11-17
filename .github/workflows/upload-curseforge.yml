@@ -1,0 +1,84 @@
+name: Upload Minecraft modpack to CurseForge
+
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    name: Upload latest Minecraft modpack ZIP
+    runs-on:
+      - self-hosted
+      - windows
+      - minecraft
+
+    steps:
+      - name: Find latest ZIP
+        id: find_zip
+        shell: powershell
+        run: |
+          $folder = 'C:\mc\MODPACK\minecraftdestined'
+          if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
+            throw "Folder not found: $folder"
+          }
+          $zip = Get-ChildItem -LiteralPath $folder -Filter '*.zip' -File |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if ($null -eq $zip) {
+            throw "No ZIP file found in $folder"
+          }
+          Write-Host "Selected ZIP: $($zip.FullName)"
+          "zip_path=$($zip.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload ZIP to CurseForge
+        shell: powershell
+        env:
+          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
+          ZIP_PATH: ${{ steps.find_zip.outputs.zip_path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $projectId = '1796302'
+          $apiBase = 'https://minecraft.curseforge.com/v1'
+          if ([string]::IsNullOrWhiteSpace($env:CURSEFORGE_API_TOKEN)) {
+            throw 'GitHub Secret CURSEFORGE_API_TOKEN is not configured.'
+          }
+          if (-not (Test-Path -LiteralPath $env:ZIP_PATH -PathType Leaf)) {
+            throw "ZIP not found: $env:ZIP_PATH"
+          }
+          $zipName = Split-Path -Leaf $env:ZIP_PATH
+          $displayName = [IO.Path]::GetFileNameWithoutExtension($zipName)
+          $headers = @{ 'x-api-token' = $env:CURSEFORGE_API_TOKEN }
+          $versions = Invoke-RestMethod -Uri "$apiBase/game/432/versions" -Headers $headers -Method Get
+          $gameVersion = @($versions | Where-Object { $_.name -eq '1.20.1' } | Select-Object -First 1)
+          if ($gameVersion.Count -eq 0) { throw 'CurseForge game version 1.20.1 was not found.' }
+          $metadata = @{
+            displayName = $displayName
+            releaseType = 'release'
+            gameVersions = @([int]$gameVersion[0].id)
+            modLoaders = @('Forge')
+            changelog = "Uploaded by GitHub Actions from $zipName"
+          } | ConvertTo-Json -Compress
+          $client = New-Object System.Net.Http.HttpClient
+          $client.DefaultRequestHeaders.Add('x-api-token', $env:CURSEFORGE_API_TOKEN)
+          $form = New-Object System.Net.Http.MultipartFormDataContent
+          $metadataContent = New-Object System.Net.Http.StringContent($metadata, [Text.Encoding]::UTF8, 'application/json')
+          $form.Add($metadataContent, 'metadata')
+          $fileStream = [IO.File]::OpenRead($env:ZIP_PATH)
+          try {
+            $fileContent = New-Object System.Net.Http.StreamContent($fileStream)
+            $fileContent.Headers.ContentType = New-Object System.Net.Http.Headers.MediaTypeHeaderValue('application/zip')
+            $form.Add($fileContent, 'file', $zipName)
+            Write-Host "Uploading $zipName to CurseForge project $projectId ..."
+            $response = $client.PostAsync("$apiBase/mods/$projectId/files", $form).GetAwaiter().GetResult()
+            $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            if (-not $response.IsSuccessStatusCode) {
+              throw "CurseForge upload failed ($([int]$response.StatusCode)): $body"
+            }
+            Write-Host "CurseForge upload succeeded: $body"
+          } finally {
+            $fileStream.Dispose()
+            $form.Dispose()
+            $client.Dispose()
+          }
